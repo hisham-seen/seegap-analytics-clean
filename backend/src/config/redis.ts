@@ -6,7 +6,7 @@ let redisClient: RedisClientType;
 const redisConfig = {
   host: process.env.REDIS_HOST || 'localhost',
   port: parseInt(process.env.REDIS_PORT || '6379'),
-  password: process.env.REDIS_PASSWORD || undefined,
+  password: process.env.REDIS_PASSWORD || null,
   db: parseInt(process.env.REDIS_DB || '0'),
   retryDelayOnFailover: 100,
   maxRetriesPerRequest: 3,
@@ -15,14 +15,19 @@ const redisConfig = {
 
 export const connectRedis = async (): Promise<void> => {
   try {
-    redisClient = createClient({
+    const clientOptions: any = {
       socket: {
         host: redisConfig.host,
         port: redisConfig.port,
       },
-      password: redisConfig.password,
       database: redisConfig.db,
-    });
+    };
+
+    if (redisConfig.password) {
+      clientOptions.password = redisConfig.password;
+    }
+
+    redisClient = createClient(clientOptions);
 
     redisClient.on('error', (err) => {
       logger.error('Redis Client Error:', err);
@@ -62,7 +67,8 @@ export const getRedisClient = (): RedisClientType => {
 export const cache = {
   get: async (key: string): Promise<string | null> => {
     try {
-      return await redisClient.get(key);
+      const result = await redisClient.get(key);
+      return result ?? null;
     } catch (error) {
       logger.error('Redis GET error:', error);
       return null;
@@ -124,7 +130,8 @@ export const cache = {
 
   hget: async (key: string, field: string): Promise<string | null> => {
     try {
-      return await redisClient.hGet(key, field);
+      const result = await redisClient.hGet(key, field);
+      return result ?? null;
     } catch (error) {
       logger.error('Redis HGET error:', error);
       return null;

@@ -66,7 +66,7 @@ router.post('/track', asyncHandler(async (req: Request, res: Response) => {
 }));
 
 // Health check for tracking service
-router.get('/track/health', (req: Request, res: Response) => {
+router.get('/track/health', (_req: Request, res: Response) => {
   res.status(200).json({
     success: true,
     service: 'tracking',
