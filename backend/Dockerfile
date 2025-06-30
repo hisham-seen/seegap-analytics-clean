@@ -38,7 +38,9 @@ RUN npm ci --only=production && npm cache clean --force
 
 # Copy built application from builder stage
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/src/public ./src/public
+
+# Copy public directory if it exists
+COPY --from=builder /app/src/public ./public
 
 # Create necessary directories
 RUN mkdir -p logs uploads && chown -R nodejs:nodejs /app

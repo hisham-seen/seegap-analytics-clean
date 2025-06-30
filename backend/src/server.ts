@@ -107,7 +107,10 @@ app.get('/track.js', (_req, res) => {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   
   // Serve the tracking script
-  res.sendFile('tracking-script.js', { root: __dirname + '/public' });
+  const publicPath = process.env.NODE_ENV === 'production' 
+    ? '/app/public' 
+    : __dirname + '/../public';
+  res.sendFile('tracking-script.js', { root: publicPath });
 });
 
 // Socket.IO for real-time updates
