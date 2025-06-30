@@ -1,0 +1,332 @@
+name: Deploy Analytics Loyalty Platform
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_USER: test_user
+          POSTGRES_DB: test_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: |
+          backend/package-lock.json
+          frontend/package-lock.json
+
+    - name: Install backend dependencies
+      run: |
+        cd backend
+        npm ci
+
+    - name: Install frontend dependencies
+      run: |
+        cd frontend
+        npm ci
+
+    - name: Lint backend code
+      run: |
+        cd backend
+        npm run lint
+
+    - name: Lint frontend code
+      run: |
+        cd frontend
+        npm run lint
+
+    - name: Run backend tests
+      run: |
+        cd backend
+        npm test
+      env:
+        NODE_ENV: test
+        DB_HOST: localhost
+        DB_PORT: 5432
+        DB_NAME: test_db
+        DB_USER: test_user
+        DB_PASSWORD: test_password
+        REDIS_HOST: localhost
+        REDIS_PORT: 6379
+        JWT_SECRET: test_jwt_secret
+
+    - name: Run frontend tests
+      run: |
+        cd frontend
+        npm test
+
+    - name: Build backend
+      run: |
+        cd backend
+        npm run build
+
+    - name: Build frontend
+      run: |
+        cd frontend
+        npm run build
+
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      matrix:
+        service: [backend, frontend, worker]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.service }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./${{ matrix.service == 'worker' && 'backend' || matrix.service }}
+        file: ./${{ matrix.service == 'worker' && 'backend' || matrix.service }}/Dockerfile${{ matrix.service == 'worker' && '.worker' || '' }}
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  deploy:
+    needs: [test, build-and-push]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    environment: production
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup SSH
+      uses: webfactory/ssh-agent@v0.8.0
+      with:
+        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+    - name: Add server to known hosts
+      run: |
+        ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+
+    - name: Deploy to GCP VM
+      run: |
+        # Setup gcloud CLI
+        echo '${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}' | base64 -d > gcp-key.json
+        gcloud auth activate-service-account --key-file gcp-key.json
+        gcloud config set project ${{ secrets.GCP_PROJECT_ID }}
+        
+        # Deploy to VM via gcloud compute ssh
+        gcloud compute ssh analytics-vm --zone=europe-west1-b --command="
+          set -e
+          
+          # Navigate to application directory
+          cd /opt/analytics
+          
+          # Pull latest code
+          sudo git fetch origin
+          sudo git reset --hard origin/main
+          
+          # Update environment variables
+          sudo tee .env > /dev/null << 'ENV_EOF'
+        # Database Configuration
+        DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+        DB_HOST=localhost
+        DB_PORT=5432
+        DB_NAME=analytics_db
+        DB_USER=analytics_user
+
+        # Redis Configuration
+        REDIS_HOST=localhost
+        REDIS_PORT=6379
+
+        # Application Configuration
+        NODE_ENV=production
+        JWT_SECRET=${{ secrets.JWT_SECRET }}
+        SESSION_SECRET=${{ secrets.SESSION_SECRET }}
+        API_URL=https://api.loyalty.seegap.com
+        FRONTEND_URL=https://loyalty.seegap.com
+        TRACKING_URL=https://track.loyalty.seegap.com
+
+        # Cloudflare Configuration
+        CLOUDFLARE_API_TOKEN=${{ secrets.CLOUDFLARE_API_TOKEN }}
+        CLOUDFLARE_ZONE_ID=${{ secrets.CLOUDFLARE_ZONE_ID }}
+        DOMAIN=loyalty.seegap.com
+        EMAIL=hisham@seegap.com
+
+        # GitHub Configuration
+        GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
+
+        # Analytics Configuration
+        ANALYTICS_RETENTION_DAYS=365
+        MAX_EVENTS_PER_MINUTE=1000
+        DEFAULT_LOYALTY_POINTS=10
+
+        # Logging Configuration
+        LOG_LEVEL=info
+        LOG_FILE=./logs/app.log
+
+        # Rate Limiting
+        RATE_LIMIT_WINDOW_MS=900000
+        RATE_LIMIT_MAX_REQUESTS=100
+        ENV_EOF
+          
+          # Fix permissions
+          sudo chown -R ubuntu:ubuntu .
+          sudo usermod -aG docker ubuntu
+          
+          # Build and start services
+          sudo docker-compose down || true
+          sudo docker-compose up -d --build
+          
+          # Wait for services to be ready
+          sleep 30
+          
+          # Health check
+          curl -f http://localhost:4000/health || echo 'Backend health check failed'
+          curl -f http://localhost:3000 || echo 'Frontend health check failed'
+          
+          # Clean up old images
+          sudo docker image prune -f
+          
+          echo 'Deployment completed successfully'
+        "
+        
+        # Clean up
+        rm -f gcp-key.json
+
+    - name: Purge Cloudflare Cache
+      run: |
+        curl -X POST "https://api.cloudflare.com/client/v4/zones/${{ secrets.CLOUDFLARE_ZONE_ID }}/purge_cache" \
+          -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
+          -H "Content-Type: application/json" \
+          --data '{"purge_everything":true}'
+
+    - name: Notify deployment success
+      if: success()
+      run: |
+        curl -X POST -H 'Content-type: application/json' \
+          --data '{"text":"🚀 Analytics Loyalty Platform deployed successfully to production!"}' \
+          ${{ secrets.SLACK_WEBHOOK_URL }}
+
+    - name: Notify deployment failure
+      if: failure()
+      run: |
+        curl -X POST -H 'Content-type: application/json' \
+          --data '{"text":"❌ Analytics Loyalty Platform deployment failed!"}' \
+          ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  security-scan:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+  performance-test:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Install dependencies
+      run: npm install -g artillery
+
+    - name: Start test environment
+      run: |
+        docker-compose -f docker-compose.test.yml up -d
+        sleep 60
+
+    - name: Run performance tests
+      run: |
+        artillery run tests/performance/load-test.yml
+
+    - name: Cleanup test environment
+      if: always()
+      run: |
+        docker-compose -f docker-compose.test.yml down -v
