@@ -1,0 +1,17 @@
+# Terraform Variables for SeeGap Analytics Platform
+# Copy this file to terraform.tfvars and fill in your values
+
+# GCP Configuration
+project_id = "eminent-subset-462023-f9"
+region     = "europe-west1"
+zone       = "europe-west1-b"
+
+# Cloudflare Configuration
+cloudflare_api_token = "9d54f68aa083399cda6633f70bc2ce2a0c69e"
+cloudflare_zone_id   = "758f689c0c7c67dd8e5083aec851f53f"
+
+# Domain Configuration
+domain = "loyalty.seegap.com"
+
+# VM Configuration
+machine_type = "e2-standard-2"  # 2 vCPUs, 8GB RAM
