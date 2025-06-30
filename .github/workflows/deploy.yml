@@ -108,11 +108,20 @@ jobs:
   terraform-plan:
     needs: test
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && vars.ENABLE_TERRAFORM == 'true'
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+
+    - name: Check for required secrets
+      run: |
+        if [ -z "${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}" ]; then
+          echo "❌ GCP_SERVICE_ACCOUNT_KEY secret is not set"
+          echo "Please add your GCP service account key to GitHub secrets"
+          exit 1
+        fi
+        echo "✅ Required secrets are available"
 
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
@@ -210,7 +219,7 @@ jobs:
   deploy-infrastructure:
     needs: [test, build-and-push]
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && vars.ENABLE_DEPLOYMENT == 'true'
     
     environment: production
 
