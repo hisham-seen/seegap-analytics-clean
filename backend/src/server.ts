@@ -22,6 +22,7 @@ import dashboardRoutes from '@/routes/dashboard';
 import trackingRoutes from '@/routes/tracking';
 import adminRoutes from '@/routes/admin';
 import billingRoutes from '@/routes/billing';
+import healthRoutes from '@/routes/health';
 
 // Load environment variables
 dotenv.config();
@@ -82,16 +83,8 @@ if (process.env.NODE_ENV !== 'test') {
 // Rate limiting
 app.use('/api/', rateLimiter);
 
-// Health check endpoint
-app.get('/health', (_req, res) => {
-  res.status(200).json({
-    status: 'OK',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    environment: process.env.NODE_ENV,
-    version: process.env.npm_package_version || '1.0.0'
-  });
-});
+// Health check routes
+app.use('/', healthRoutes);
 
 // API Routes
 app.use('/api/auth', authRoutes);
@@ -106,7 +99,7 @@ app.use('/api/billing', billingRoutes);
 app.use('/', trackingRoutes);
 
 // Serve tracking script
-app.get('/track.js', (req, res) => {
+app.get('/track.js', (_req, res) => {
   res.setHeader('Content-Type', 'application/javascript');
   res.setHeader('Cache-Control', 'public, max-age=3600');
   res.setHeader('Access-Control-Allow-Origin', '*');

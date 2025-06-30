@@ -8,7 +8,7 @@ export const metadata: Metadata = {
   title: 'Analytics Loyalty Platform',
   description: 'Google Analytics clone with custom loyalty rewards for your website visitors',
   keywords: 'analytics, loyalty, rewards, tracking, dashboard, saas',
-  authors: [{ name: 'Hisham Sait', email: 'hisham@seen.ie' }],
+  authors: [{ name: 'Hisham Sait' }],
   viewport: 'width=device-width, initial-scale=1',
   robots: 'index, follow',
   openGraph: {

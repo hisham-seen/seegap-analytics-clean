@@ -110,7 +110,7 @@ export const asyncHandler = (fn: Function) => (req: Request, res: Response, next
   Promise.resolve(fn(req, res, next)).catch(next);
 };
 
-export const notFound = (req: Request, res: Response, next: NextFunction): void => {
+export const notFound = (req: Request, _res: Response, next: NextFunction): void => {
   const error = createError(`Not found - ${req.originalUrl}`, 404);
   next(error);
 };
