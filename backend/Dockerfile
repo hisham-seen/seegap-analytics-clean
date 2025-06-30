@@ -39,8 +39,10 @@ RUN npm ci --only=production && npm cache clean --force
 # Copy built application from builder stage
 COPY --from=builder /app/dist ./dist
 
-# Copy public directory if it exists
-COPY --from=builder /app/src/public ./public
+# Create public directory and copy files
+RUN mkdir -p ./public
+# Copy the tracking script directly
+COPY --from=builder /app/src/public/tracking-script.js ./public/tracking-script.js
 
 # Create necessary directories
 RUN mkdir -p logs uploads && chown -R nodejs:nodejs /app
